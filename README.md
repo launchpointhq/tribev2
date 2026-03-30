@@ -12,7 +12,7 @@
 
 </div>
 
-TRIBE v2 is a deep multimodal brain encoding model that predicts fMRI brain responses to naturalistic stimuli (video, audio, text). It combines state-of-the-art feature extractors — [**LLaMA 3.2**](https://huggingface.co/meta-llama/Llama-3.2-3B) (text), [**V-JEPA2**](https://huggingface.co/facebook/vjepa2-vitg-fpc64-256) (video), and [**Wav2Vec-BERT**](https://huggingface.co/facebook/w2v-bert-2.0) (audio) — into a unified Transformer architecture that maps multimodal representations onto the cortical surface.
+TRIBE v2 is a deep multimodal brain encoding model that predicts fMRI brain responses to naturalistic stimuli (video, audio, text). It combines state-of-the-art text, audio and video models into a unified Transformer architecture that maps multimodal representations onto the cortical surface.
 
 ## Quick start
 
@@ -21,14 +21,17 @@ Load a pretrained model from HuggingFace and predict brain responses to a video:
 ```python
 from tribev2 import TribeModel
 
-model = TribeModel.from_pretrained("facebook/tribev2", cache_folder="./cache")
+model = TribeModel.from_pretrained("facebook/tribev2-mini", cache_folder="./cache")
 
 df = model.get_events_dataframe(video_path="path/to/video.mp4")
 preds, segments = model.predict(events=df)
 print(preds.shape)  # (n_timesteps, n_vertices)
 ```
 
-Predictions are for the "average" subject (see paper for details) and live on the **fsaverage5** cortical mesh (~20k vertices). You can also pass `text_path` or `audio_path` to `model.get_events_dataframe` — text is automatically converted to speech and transcribed to obtain word-level timings.
+Predictions are for the "average" subject (see paper for details) and live on the **fsaverage5** cortical mesh (~20k vertices).
+They are offset by 5 seconds in the past, in order to compensate for the hemodynamic lag.
+
+You can also pass `text_path` or `audio_path` to `model.get_events_dataframe` — text is automatically converted to speech and transcribed to obtain word-level timings.
 
 For a full walkthrough with brain visualizations, see the [Colab demo notebook](https://colab.research.google.com/github/facebookresearch/tribev2/blob/main/tribe_demo.ipynb).
 
@@ -58,20 +61,10 @@ Configure data/output paths and Slurm partition (or edit `tribev2/grids/defaults
 ```bash
 export DATAPATH="/path/to/studies"
 export SAVEPATH="/path/to/output"
-export SLURM_PARTITION="your_partition"
 ```
 
-### 2. Authenticate with HuggingFace
 
-The text encoder requires access to the gated [LLaMA 3.2-3B](https://huggingface.co/meta-llama/Llama-3.2-3B) model:
-
-```bash
-huggingface-cli login
-```
-
-Create a `read` [access token](https://huggingface.co/settings/tokens) and paste it when prompted.
-
-### 3. Run training
+### 2. Run training
 
 **Local test run:**
 ```bash
