@@ -21,9 +21,13 @@ COPY tribev2 ./tribev2
 
 RUN pip install --upgrade pip \
  && pip install -e . \
- && pip install runpod nilearn scipy
+ && pip install runpod nilearn scipy uv
 
 RUN python -m spacy download en_core_web_sm || true
+
+# Prewarm whisperx so the first request doesn't pay a multi-GB install cost.
+# Model weights still download at runtime (cached under $HF_HOME on the volume).
+RUN uvx whisperx --help >/dev/null 2>&1 || true
 
 # Prime the Destrieux atlas cache so the first request doesn't fetch it.
 RUN python -c "from nilearn import datasets; datasets.fetch_atlas_surf_destrieux()"
