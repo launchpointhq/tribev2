@@ -11,17 +11,33 @@ import numpy as np
 import requests
 import runpod
 
-from tribev2 import TribeModel
-
 from timeline import build_timeline
 
 CACHE = os.environ.get("TRIBE_CACHE", "/runpod-volume/tribev2-cache")
 os.makedirs(CACHE, exist_ok=True)
 
-print("Loading TRIBE v2 from HuggingFace…", flush=True)
-MODEL = TribeModel.from_pretrained("facebook/tribev2", cache_folder=CACHE)
-TR = float(MODEL.data.TR)
-print(f"Ready. TR={TR}s", flush=True)
+print(f"[boot] handler.py starting (cache={CACHE})", flush=True)
+
+_MODEL = None
+_TR = None
+
+
+def _get_model():
+    """Lazy-load the model on first request so startup errors surface to
+    the client instead of silently crash-looping the worker."""
+    global _MODEL, _TR
+    if _MODEL is not None:
+        return _MODEL, _TR
+    import torch
+    print(f"[boot] torch={torch.__version__} cuda_available={torch.cuda.is_available()}", flush=True)
+    if torch.cuda.is_available():
+        print(f"[boot] cuda_device={torch.cuda.get_device_name(0)}", flush=True)
+    from tribev2 import TribeModel
+    print("[boot] loading TRIBE v2 from HuggingFace…", flush=True)
+    _MODEL = TribeModel.from_pretrained("facebook/tribev2", cache_folder=CACHE)
+    _TR = float(_MODEL.data.TR)
+    print(f"[boot] ready. TR={_TR}s", flush=True)
+    return _MODEL, _TR
 
 DEFAULT_SUFFIX = {"video": ".mp4", "audio": ".wav", "text": ".txt"}
 VALID_SUFFIX = {
@@ -88,6 +104,8 @@ def handler(job):
         inp = job["input"]
         opts = inp.get("options", {})
 
+        model, tr = _get_model()
+
         kwargs = {}
         if "video" in inp:
             kwargs["video_path"] = _materialize(inp["video"], "video")
@@ -97,15 +115,21 @@ def handler(job):
             kwargs["text_path"] = _materialize(inp["text"], "text")
         if not kwargs:
             return {"error": "provide one of: video, audio, text"}
+        print(f"[handler] inputs={list(kwargs)}", flush=True)
 
-        events = MODEL.get_events_dataframe(**kwargs)
-        preds, segments = MODEL.predict(events, verbose=False)
+        print("[handler] extracting events…", flush=True)
+        events = model.get_events_dataframe(**kwargs)
+        print(f"[handler] events: {len(events)} rows", flush=True)
+
+        print("[handler] running prediction…", flush=True)
+        preds, segments = model.predict(events, verbose=False)
+        print(f"[handler] preds shape: {preds.shape}", flush=True)
 
         out = {
             "timeline": build_timeline(
                 preds,
                 segments,
-                tr=TR,
+                tr=tr,
                 top_k=opts.get("top_k", 8),
                 include_full_regions=opts.get("include_full_regions", True),
                 z_score=opts.get("z_score", True),
