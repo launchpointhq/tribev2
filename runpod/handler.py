@@ -6,9 +6,9 @@ import io
 import os
 import tempfile
 import traceback
-import urllib.request
 
 import numpy as np
+import requests
 import runpod
 
 from tribev2 import TribeModel
@@ -23,16 +23,58 @@ MODEL = TribeModel.from_pretrained("facebook/tribev2", cache_folder=CACHE)
 TR = float(MODEL.data.TR)
 print(f"Ready. TR={TR}s", flush=True)
 
-SUFFIX = {"video": ".mp4", "audio": ".wav", "text": ".txt"}
+DEFAULT_SUFFIX = {"video": ".mp4", "audio": ".wav", "text": ".txt"}
+VALID_SUFFIX = {
+    "video": {".mp4", ".avi", ".mkv", ".mov", ".webm"},
+    "audio": {".wav", ".mp3", ".flac", ".ogg"},
+    "text": {".txt"},
+}
+
+
+def _pick_suffix(spec: dict, kind: str) -> str:
+    if "suffix" in spec:
+        s = spec["suffix"].lower()
+        if not s.startswith("."):
+            s = "." + s
+        return s
+    if "url" in spec:
+        from urllib.parse import urlparse
+        path = urlparse(spec["url"]).path.lower()
+        for ext in VALID_SUFFIX[kind]:
+            if path.endswith(ext):
+                return ext
+    return DEFAULT_SUFFIX[kind]
+
+
+UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/122.0 Safari/537.36"
+)
+
+
+def _download(url: str, dest: str) -> None:
+    with requests.get(url, stream=True, allow_redirects=True,
+                      headers={"User-Agent": UA}, timeout=120) as r:
+        if r.status_code >= 400:
+            raise ValueError(
+                f"Could not fetch {url}: HTTP {r.status_code}. "
+                "The URL must be publicly downloadable (no login, no preview "
+                "page). For Google Drive, Dropbox, etc., use a direct "
+                "download link, a signed S3 URL, or send the file as base64."
+            )
+        with open(dest, "wb") as f:
+            for chunk in r.iter_content(1024 * 256):
+                if chunk:
+                    f.write(chunk)
 
 
 def _materialize(spec: dict, kind: str) -> str:
     if "path" in spec:
         return spec["path"]
-    fd, path = tempfile.mkstemp(suffix=SUFFIX[kind])
+    fd, path = tempfile.mkstemp(suffix=_pick_suffix(spec, kind))
     os.close(fd)
     if "url" in spec:
-        urllib.request.urlretrieve(spec["url"], path)
+        _download(spec["url"], path)
     elif "b64" in spec:
         with open(path, "wb") as f:
             f.write(base64.b64decode(spec["b64"]))
