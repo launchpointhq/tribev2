@@ -1,0 +1,10 @@
+{
+  "input": {
+    "video": { "url": "https://example.com/your-clip.mp4" },
+    "options": {
+      "top_k": 10,
+      "include_full_regions": false,
+      "z_score": true
+    }
+  }
+}
